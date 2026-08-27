@@ -1,0 +1,24 @@
+# === 問題データを絶対にコミットしないための安全弁 ===
+# このリポジトリは public。試験問題は非開示のため、問題文を含むものは一切追跡しない。
+questions/
+*-questions-*.json
+*questions*.json
+timed-exam.html
+predicted-exam.html
+
+# 成績データ（受験履歴。個人の学習記録なので公開しない）
+*-results-*.json
+results/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+
+# ログ・一時ファイル
+*.log
+*.tmp
