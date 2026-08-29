@@ -158,6 +158,8 @@ select {
 table.history { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 table.history th, table.history td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
 table.history th { color: var(--muted); font-weight: 600; font-size: 0.78rem; }
+table.history tr.hist-row { cursor: pointer; }
+table.history tr.hist-row:hover td { background: #f9fafb; }
 .score-pass { color: var(--success); font-weight: 700; }
 .score-fail { color: var(--danger); font-weight: 700; }
 
@@ -366,6 +368,7 @@ footer { text-align: center; color: #9ca3af; font-size: 0.8rem; padding: 1rem; }
   table.history th, table.history td,
   .list-row, .result-row { border-color: var(--border); }
   .list-row:hover, .result-row:hover { background: #17233a; }
+  table.history tr.hist-row:hover td { background: #17233a; }
   .q-number { background: #1e293b; }
   .question-text code, .option code, .explanation code, .bi-ja code {
     background: #0f172a; color: #7dd3fc; border: 1px solid #334155;

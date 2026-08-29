@@ -719,14 +719,39 @@ async function toggleHistoryPanel(id) {
   if (!hist.length) {
     panel.innerHTML = '<p class="hint">まだ受験履歴がありません。</p>';
   } else {
-    const rows = hist.slice(-10).reverse().map((h) => {
+    const rows = hist.slice(-10).reverse().map((h, i) => {
+      const histIdx = hist.length - 1 - i; // 表示は新しい順のため hist 配列の実インデックスへ変換
       const rate = h.total ? Math.round((h.correct / h.total) * 100) : 0;
       const cls = rate >= Math.round(passRate * 100) ? 'score-pass' : 'score-fail';
-      return `<tr><td>${esc(h.date || '')}</td><td class="${cls}">${h.correct}/${h.total}（${rate}%）</td><td>${hhmmss(h.totalMs || 0)}</td></tr>`;
+      return `<tr class="hist-row" data-hist-idx="${histIdx}"><td>${esc(h.date || '')}</td><td class="${cls}">${h.correct}/${h.total}（${rate}%）</td><td>${hhmmss(h.totalMs || 0)}</td></tr>`;
     }).join('');
-    panel.innerHTML = `<table class="history"><tr><th>日時</th><th>スコア</th><th>所要時間</th></tr>${rows}</table>`;
+    panel.innerHTML = `<table class="history"><tr><th>日時</th><th>スコア</th><th>所要時間</th></tr>${rows}</table>` +
+      '<p class="hint">行をタップすると、当時の結果と復習（🚩・✕・解説）を表示できます。</p>';
+    panel.querySelectorAll('.hist-row').forEach((tr) => {
+      tr.onclick = () => openHistoryResult(id, Number(tr.dataset.histIdx));
+    });
   }
   panel.classList.remove('hidden');
+}
+
+/* 受験履歴の行タップ → 当時の受験レコードを「回答直後と同じ」結果・復習画面で開く（閲覧専用） */
+async function openHistoryResult(setId, histIdx) {
+  const rec = await Storage.getSet(setId);
+  if (!rec) { showToast('問題セットの読み込みに失敗しました'); return; }
+  const hist = await Storage.getHistory(setId);
+  const record = hist[histIdx];
+  if (!record) return;
+
+  currentSetId = setId;
+  currentSetMeta = rec.set;
+  setCurrentQuestions(rec.questions);
+  notesCache = await Storage.getNotesForSet(setId);
+  session = null;
+  resultRecord = record;
+  setHeaderTitle(`${currentSetMeta.name}（${record.date} の受験）`);
+  renderResult();
+  show('screen-result');
+  $('progress-fill').style.width = '100%'; // 提出直後の結果画面と表示を揃える
 }
 
 /* ================= export ================= */
@@ -1229,7 +1254,9 @@ async function finishSession(auto) {
 function renderResult() {
   const record = resultRecord;
   const rate = record.total ? Math.round((record.correct / record.total) * 100) : 0;
-  const passRate = (session && typeof session.passRate === 'number') ? session.passRate : DEFAULT_PASS_RATE;
+  const passRate = (session && typeof session.passRate === 'number') ? session.passRate
+    : (currentSetMeta && typeof currentSetMeta.passRate === 'number') ? currentSetMeta.passRate
+    : DEFAULT_PASS_RATE;
   const pass = rate >= Math.round(passRate * 100);
   $('result-score').innerHTML = `<span class="${pass ? 'score-pass' : 'score-fail'}">${rate}%</span>　${record.correct} / ${record.total} 問正解`;
   const need = Math.max(0, Math.ceil(record.total * passRate) - record.correct);
@@ -1269,14 +1296,14 @@ function renderResult() {
     reviewList = flagged;
     openReview(0);
   };
-  $('result-export-btn').onclick = () => exportResults(session.setId);
+  $('result-export-btn').onclick = () => exportResults(currentSetId);
   $('result-home-btn').onclick = () => goHome();
 }
 
 /* ================= review (提出後) ================= */
 function openReview(idxInReviewList) {
   reviewIdx = idxInReviewList;
-  revLang = session.lang;
+  revLang = session ? session.lang : (resultRecord.lang || 'en'); // 履歴閲覧時は session が無いので受験時の言語を使う
   renderReview();
   show('screen-review');
 }
@@ -1289,6 +1316,31 @@ function renderReview() {
   const ans = rq.answer;
 
   $('rev-number').textContent = `問 ${i + 1} / ${record.total}（レビュー ${reviewIdx + 1}/${reviewList.length}）${rq.flagged ? ' 🚩' : ''}`;
+
+  // 履歴閲覧時のみ起きうる: ブラッシュアップ再インポートで問題が削除/ID変更されたケース
+  if (!q) {
+    const yourLabel = rq.answered ? (Array.isArray(ans) ? ans.slice().sort().join(', ') : ans) : '未解答';
+    const correctLabel = Array.isArray(rq.correct) ? rq.correct.slice().sort().join(', ') : rq.correct;
+    $('rev-area').textContent = '';
+    $('rev-time').textContent = '⏱ ' + mmss(rq.ms);
+    $('rev-text').innerHTML = `<span class="hint">この問題（id: ${esc(String(rq.id))}）は現在の問題セットに存在しません（ブラッシュアップで変更された可能性があります）。</span>`;
+    $('rev-options').innerHTML = '';
+    $('rev-feedback').innerHTML =
+      `<div class="verdict ${rq.ok ? 'correct' : 'incorrect'}">` +
+      `${!rq.answered ? '— 未解答' : (rq.ok ? '✅ 正解' : '❌ 不正解')}（あなたの解答: ${esc(String(yourLabel))} / 正解: ${esc(String(correctLabel))}）</div>`;
+    $('rev-lang-btn').textContent = langBtnLabel(revLang);
+    $('rev-memo-btn').classList.toggle('has-memo', hasMemo(rq.id));
+    $('rev-prev-btn').disabled = reviewIdx === 0;
+    $('rev-next-btn').disabled = reviewIdx === reviewList.length - 1;
+    $('rev-copy-btn').onclick = () => showToast('問題データがないためコピーできません');
+    $('rev-memo-btn').onclick = async () => {
+      await openMemoEditor(rq.id);
+      $('rev-memo-btn').classList.toggle('has-memo', hasMemo(rq.id));
+    };
+    window.scrollTo(0, 0);
+    return;
+  }
+
   $('rev-area').textContent = areaOf(q) + (topicOf(q) ? ' / ' + topicOf(q) : '');
   $('rev-time').textContent = '⏱ ' + mmss(rq.ms);
   $('rev-text').innerHTML = bi(q.question, q.question_ja, revLang);

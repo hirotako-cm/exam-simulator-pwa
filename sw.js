@@ -7,7 +7,7 @@
    更新時は CACHE_VERSION を上げるだけでよい。
    ============================================================ */
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `study-app-${CACHE_VERSION}`;
 
 const APP_SHELL = [
