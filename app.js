@@ -1210,6 +1210,7 @@ async function finishSession(auto) {
         answered: isAnswered(ans),
         ms: session.times[qid] || 0,
         flagged: !!session.flags[qid],
+        struck: session.strikes[qid] || [],
       };
     }),
   };
@@ -1247,6 +1248,7 @@ function renderResult() {
       <div class="result-row" data-idx="${i}">
         <span class="idx">${i + 1}</span>
         <span class="badge">${badge}</span>
+        <span class="badge flag-mark">${rq.flagged ? '🚩' : ''}</span>
         <span class="answers">${esc(yourLabel)}（正解 ${esc(String(correctLabel))}）</span>
         <span class="time ${slow ? 'slow' : ''}">${mmss(rq.ms)}${slow ? ' ⏱' : ''}</span>
       </div>`;
@@ -1260,6 +1262,12 @@ function renderResult() {
     if (!wrongs.length) { showToast('間違えた問題はありません！🎉'); return; }
     reviewList = wrongs;
     openReview(0); // openReview は reviewList 内の位置を取る（問題番号ではない）
+  };
+  $('result-review-flagged-btn').onclick = () => {
+    const flagged = record.questions.map((_, i) => i).filter((i) => record.questions[i].flagged);
+    if (!flagged.length) { showToast('🚩を付けた問題はありません'); return; }
+    reviewList = flagged;
+    openReview(0);
   };
   $('result-export-btn').onclick = () => exportResults(session.setId);
   $('result-home-btn').onclick = () => goHome();
@@ -1280,13 +1288,14 @@ function renderReview() {
   const q = questionById(rq.id);
   const ans = rq.answer;
 
-  $('rev-number').textContent = `問 ${i + 1} / ${record.total}（レビュー ${reviewIdx + 1}/${reviewList.length}）`;
+  $('rev-number').textContent = `問 ${i + 1} / ${record.total}（レビュー ${reviewIdx + 1}/${reviewList.length}）${rq.flagged ? ' 🚩' : ''}`;
   $('rev-area').textContent = areaOf(q) + (topicOf(q) ? ' / ' + topicOf(q) : '');
   $('rev-time').textContent = '⏱ ' + mmss(rq.ms);
   $('rev-text').innerHTML = bi(q.question, q.question_ja, revLang);
 
   const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
   const yourSet = new Set(Array.isArray(ans) ? ans : (isAnswered(ans) ? [ans] : []));
+  const struckSet = new Set(rq.struck || []); // 旧履歴レコードには struck が無いためガード
   const wrap = $('rev-options');
   wrap.innerHTML = optionKeys(q).map((k) =>
     `<button class="option" data-key="${esc(k)}" disabled><span class="letter">${esc(k)}</span><span class="opt-text">${bi(q.options[k], (q.options_ja || {})[k], revLang)}</span></button>`
@@ -1297,6 +1306,7 @@ function renderReview() {
     const isRight = correctSet.has(k);
     if (isYours) btn.classList.add('selected', isRight ? 'correct' : 'incorrect');
     else if (isRight) btn.classList.add('reveal-correct');
+    if (struckSet.has(k)) btn.classList.add('struck');
   });
 
   const correctLabel = Array.from(correctSet).sort().join(', ');
@@ -1467,6 +1477,7 @@ function wireStaticEvents() {
 
   $('rev-prev-btn').onclick = () => { if (reviewIdx > 0) { reviewIdx--; renderReview(); } };
   $('rev-next-btn').onclick = () => { if (reviewIdx < reviewList.length - 1) { reviewIdx++; renderReview(); } };
+  $('rev-lang-btn').onclick = () => { revLang = nextLang(revLang); renderReview(); };
   $('rev-back-btn').onclick = () => show('screen-result');
 
   document.addEventListener('keydown', onKeyDown);
