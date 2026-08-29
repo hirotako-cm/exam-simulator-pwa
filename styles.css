@@ -196,7 +196,7 @@ table.history th { color: var(--muted); font-weight: 600; font-size: 0.78rem; }
   font-size: 0.92em; line-height: 1.6;
 }
 .question-text code, .option code, .explanation code, .bi-ja code {
-  background: #f3f4f6; padding: 0.1rem 0.35rem; border-radius: 3px;
+  background: #f3f4f6; color: #0f172a; padding: 0.1rem 0.35rem; border-radius: 3px;
   font-size: 0.9em; font-family: ui-monospace, SFMono-Regular, "Cascadia Code", "Roboto Mono", monospace;
 }
 
@@ -367,4 +367,7 @@ footer { text-align: center; color: #9ca3af; font-size: 0.8rem; padding: 1rem; }
   .list-row, .result-row { border-color: var(--border); }
   .list-row:hover, .result-row:hover { background: #17233a; }
   .q-number { background: #1e293b; }
+  .question-text code, .option code, .explanation code, .bi-ja code {
+    background: #0f172a; color: #7dd3fc; border: 1px solid #334155;
+  }
 }
