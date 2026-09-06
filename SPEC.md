@@ -19,7 +19,9 @@
 | 問題セット | 複数セットを名前付きで保持し、切り替え可能 |
 | 取り消し線 | 各選択肢の右端の ✕ ボタン |
 | 制限時間 | 53問=120分（公式ガイド準拠、約136秒/問）を基準に問題数へ比例 |
-| 言語切替 | 問題文・選択肢・解説のみ（英／日／英日併記）。UIは日本語固定 |
+| 言語ポリシー | **解答画面は英語固定、復習画面は英日併記固定**（言語切替 UI は撤去済み）。UIは日本語固定 |
+| 左右分割表示 | `context`（シナリオ前段）を持つ問題は、PC幅で左＝前段／右＝質問＋選択肢の2ペイン表示（CCAR-F の本番画面を再現）。モバイルは縦積み |
+| 翻訳抑止 | `<html translate="no">`＋`notranslate` メタで、英語問題文へのブラウザ自動翻訳の起動を抑止 |
 | 技術構成 | バニラJS＋ファイル分割。ビルド工程・npm依存なし |
 
 ### 同梱しない理由
@@ -68,6 +70,9 @@ study-app/
       "correct": "C",               // single: "C" / multi: ["A","C"]
       "explanation": "...",
       "study_area": "...",
+      "scenario": "Scenario: ...",  // 任意。左ペインの見出し（CCAR-F のシナリオ名）
+      "context": ["para1", "para2"],   // 任意。左ペインに出すシナリオ前段（英語段落の配列。文字列単体も可）
+      "context_ja": ["段落1", "段落2"], // 任意。復習画面の英日併記用（context と同じ長さ）
       "question_ja": "...",
       "options_ja": { "A": "...", "B": "...", "C": "...", "D": "..." },
       "explanation_ja": "..."
@@ -100,7 +105,7 @@ study-app/
 | localStorage | `sa-notes-v1` | `{ [setId]: { [qid]: {flag, memo, updatedAt} } }` |
 | localStorage | `sa-history-v1` | `{ [setId]: [受験レコード] }` |
 | localStorage | `sa-session-v1` | 進行中セッション（1件のみ） |
-| localStorage | `sa-prefs-v1` | `{ lang, lastSetId, shuffle, ... }` |
+| localStorage | `sa-prefs-v1` | `{ lastSetId, shuffle, ... }`（旧 `lang` は残っていても読み捨てる） |
 
 既存アプリのキー（`ccdvf-timer-*` / `ccaf-timer-*` / `ccar-f-predicted-*`）には触らない。
 
@@ -115,21 +120,24 @@ study-app/
 - インポート: `<input type="file" accept="application/json,.json">` と、テキスト貼り付け欄の2経路
 - 受験履歴（セットごと、直近10件）。行タップで当時の受験を結果画面として開き、回答直後と同じ復習（🚩・✕取り消し線・解説）ができる（閲覧専用。再受験ではない）
 - エクスポート: 「問題＋メモ」「成績」の2種
+- 削除: セットごとの「削除」ボタン。モーダルで「セットのみ削除（履歴・メモは残す）」か「履歴・メモごと削除」を選択。履歴・メモを残せば、同じセットID・問題IDで再インポートしたときに引き継がれる
 
 ### 2. 試験設定
 
-- 出題数: 53（本番相当）/ 10 / 20 / 全問 / 任意入力
-- 制限時間: `ceil(120 × 出題数 / 53)` を自動計算し、手動上書き可
-- 出題言語: 英 / 日 / 英日併記
+- 出題数: 本番相当（`officialCount`）/ 10 / 20 / 全問 / 任意入力
+- 制限時間: `ceil(officialMinutes × 出題数 / officialCount)` を自動計算し、手動上書き可
 - 出題順シャッフル on/off
+- 出題言語の選択は無い（解答画面は英語固定。`sa-prefs-v1` の `lang` は読み捨てるだけで互換維持）
 
 ### 3. 解答画面
 
 - ヘッダー: 残り時間カウントダウン（20%以下で警告色、5分以下で点滅）、進捗バー、「問 X / Y」
 - **分野（study_area）は表示しない**（本番同様。提出後に開示）
+- `context` を持つ問題は左ペインに `scenario` 見出し＋前段落を表示（768px以上で左右2カラム・左ペインは sticky、モバイルは縦積み）。**表示は英語のみ**
+- 分割表示の画面（解答・復習）は PC 幅でコンテンツ最大幅を 1250px に拡大（`body.wide`）
 - 選択肢: タップで選択。`multi` はチェックボックス的な複数選択で、「2つ選んでください」を明示し、選択数の上限に達したら追加選択を弾いて注意を出す
 - 各選択肢の右端に ✕ ボタン。タップで取り消し線、再タップで解除。取り消し線を付けた選択肢は選択できる（本番同様、除外は目印であって禁止ではない）
-- ボタン: 🚩 あとで見直す / 🌐 言語切替 / 📝 メモ / ← 前へ / 次へ → / 解答一覧へ
+- ボタン: 🚩 あとで見直す / 📝 メモ / ← 前へ / 次へ → / 解答一覧へ（🌐 言語切替は撤去済み）
 - 番号パレット（未解答・解答済み・🚩 の3状態を色分け。**正誤は出さない**）
 
 ### 4. 解答一覧（提出前）
@@ -151,11 +159,10 @@ study-app/
 
 ### 6. 復習（提出後）
 
-- 問題文・選択肢（正解と誤答を色分け）・解説・和訳、`study_area` を表示
+- 問題文・選択肢（正解と誤答を色分け）・解説、`study_area` を**常に英日併記**で表示（切替なし）。`context` を持つ問題は左ペインに前段も英日併記で表示
 - 試験中に付けた🚩見直しフラグをヘッダに、✕取り消し線を選択肢に再現表示（受験レコードの `flagged` / `struck` から復元）
 - 📝 メモ追加
-- 📋 解説用にコピー（既存 `buildExplainPrompt()` を流用）
-- 🌐 言語切替（英／日／英日併記）。履歴閲覧時は受験時の言語（`record.lang`）から開始
+- 📋 解説用にコピー（既存 `buildExplainPrompt()` を流用。`context` があれば【シナリオ】として含める）
 - 前へ / 次へ
 - 履歴閲覧時、ブラッシュアップ再インポートで問題が削除/ID変更されていた場合は、その問題だけ「現在のセットに存在しません」と解答記録のみ表示（クラッシュしない）
 
@@ -192,6 +199,7 @@ study-app/
 
 - `manifest.json`: `name` / `short_name` / `start_url: "."` / `display: "standalone"` / `theme_color` / `icons`（192・512）
 - `sw.js`: install で app shell（`index.html` / `app.js` / `styles.css` / `manifest.json` / `icons/*`）をキャッシュ。fetch は cache-first。`CACHE_VERSION` 定数で更新
+- 旧 SW 配下で開いた場合、新 SW への `controllerchange` を検知して一度だけ自動リロードする（cache-first で古い shell を掴んだまま操作するのを防ぐ）。現在のビルド番号はフッターに表示
 - Service Worker の登録は `https:` または `localhost` のときのみ（`file://` ではスキップ）
 - `index.html`: `<meta name="apple-mobile-web-app-capable" content="yes">`、`<link rel="apple-touch-icon" href="icons/icon-192.png">`、`<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`
 

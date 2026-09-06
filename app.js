@@ -19,8 +19,8 @@ const LS_SESSION = 'sa-session-v1';
 const LS_PREFS = 'sa-prefs-v1';
 const LS_SETS_FALLBACK = 'sa-sets-v1'; // IndexedDB が使えないときの問題セット保管場所
 
-const LANG_CYCLE = ['en', 'ja', 'both'];
-const LANG_LABEL = { en: '英語', ja: '日本語', both: '英日併記' };
+// 言語ポリシー（CCAR-F 向け改修）: 解答画面は常に英語、復習画面は常に英日併記。
+// 言語切替 UI は撤去済み。record.lang は互換のため 'en' 固定で保存する。
 const DEFAULT_PASS_RATE = 0.7;
 
 const NOTE_FLAGS = [
@@ -42,11 +42,34 @@ function fmt(s) { return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>'); }
 /* 言語別テキスト。lang: 'en' | 'ja' | 'both' */
 function bi(en, ja, lang) {
   if (lang === 'ja' && ja) return fmt(ja);
-  if (lang === 'both' && ja) return fmt(en) + `<span class="bi-ja">${fmt(ja)}</span>`;
+  if (lang === 'both' && ja) return fmt(en) + `<span class="bi-ja" lang="ja">${fmt(ja)}</span>`;
   return fmt(en || '');
 }
-function nextLang(lang) { return LANG_CYCLE[(LANG_CYCLE.indexOf(lang) + 1) % LANG_CYCLE.length]; }
-function langBtnLabel(lang) { return `🌐 ${LANG_LABEL[nextLang(lang)]}で表示`; }
+/* シナリオ前段（context: 段落の配列）を描画する。withJa=true で英日併記 */
+function contextHTML(q, withJa) {
+  const en = q.context || [];
+  const ja = q.context_ja || [];
+  return en.map((p, i) =>
+    `<p>${fmt(p)}</p>` + (withJa && ja[i] ? `<p class="bi-ja" lang="ja">${fmt(ja[i])}</p>` : '')
+  ).join('');
+}
+function hasContext(q) { return !!(q && ((q.context && q.context.length) || q.scenario)); }
+/* 左ペイン（シナリオ前段）を描画する。context が無い問題は従来どおり 1 ペイン表示 */
+function renderContextPane(prefix, q, withJa) {
+  const pane = $(`${prefix}-context-pane`);
+  const split = $(`${prefix}-split`);
+  if (hasContext(q)) {
+    pane.classList.remove('hidden');
+    split.classList.add('has-context');
+    const title = $(`${prefix}-scenario`);
+    title.textContent = q.scenario || '';
+    title.classList.toggle('hidden', !q.scenario); // 見出し無し運用（CCAR-F）では空のチップを出さない
+    $(`${prefix}-context`).innerHTML = contextHTML(q, withJa);
+  } else {
+    pane.classList.add('hidden');
+    split.classList.remove('has-context');
+  }
+}
 function areaOf(q) {
   if (!q.study_area) return 'その他';
   return q.study_area.split('—')[0].replace(/ /g, ' ').trim() || 'その他';
@@ -209,6 +232,9 @@ function normalizeSet(raw, providedMeta) {
 
     if (!q.question) errors.push(`${tag} (id=${id}): question が空です。`);
 
+    // シナリオ前段（左ペイン用）。文字列単体でも配列に正規化する。任意フィールド。
+    const normCtx = (v) => (v === undefined || v === null || v === '') ? [] : (Array.isArray(v) ? v.map(String) : [String(v)]);
+
     questions.push({
       id, type, selectCount,
       question: q.question || '',
@@ -216,6 +242,9 @@ function normalizeSet(raw, providedMeta) {
       correct,
       explanation: q.explanation || '',
       study_area: q.study_area || '',
+      scenario: q.scenario || '',
+      context: normCtx(q.context),
+      context_ja: normCtx(q.context_ja),
       question_ja: q.question_ja || '',
       options_ja: (q.options_ja && typeof q.options_ja === 'object' && !Array.isArray(q.options_ja)) ? q.options_ja : {},
       explanation_ja: q.explanation_ja || '',
@@ -239,6 +268,11 @@ function buildExplainPrompt(q, ans, withJa) {
   L.push('');
   L.push(`【出典】${(q.study_area || '').replace(/_/g, '')}`);
   L.push('');
+  if (q.context && q.context.length) {
+    L.push(`【シナリオ】${q.scenario || ''}`.trim());
+    q.context.forEach((p) => L.push(p));
+    L.push('');
+  }
   L.push('【問題】');
   L.push(q.question);
   L.push('');
@@ -413,6 +447,34 @@ const Storage = (function () {
     lsSet(LS_SETS_FALLBACK, all);
   }
 
+  async function deleteSet(id) {
+    if (!idbBroken && db) {
+      try {
+        await new Promise((resolve, reject) => {
+          const req = idbStore('readwrite').delete(id);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+        return;
+      } catch (e) { idbBroken = true; announceDegrade(); }
+    }
+    const all = lsGet(LS_SETS_FALLBACK, {});
+    delete all[id];
+    lsSet(LS_SETS_FALLBACK, all);
+  }
+
+  async function deleteNotesForSet(setId) {
+    const all = lsGet(LS_NOTES, {});
+    delete all[setId];
+    lsSet(LS_NOTES, all);
+  }
+
+  async function deleteHistory(setId) {
+    const all = lsGet(LS_HISTORY, {});
+    delete all[setId];
+    lsSet(LS_HISTORY, all);
+  }
+
   async function getNotesForSet(setId) {
     const all = lsGet(LS_NOTES, {});
     return all[setId] || {};
@@ -455,9 +517,9 @@ const Storage = (function () {
   return {
     init, setOnDegrade,
     get mode() { return mode; },
-    listSets, getSet, putSet,
-    getNotesForSet, setNote,
-    getHistory, appendHistory,
+    listSets, getSet, putSet, deleteSet,
+    getNotesForSet, setNote, deleteNotesForSet,
+    getHistory, appendHistory, deleteHistory,
     getSession, setSession, clearSession,
     getPrefs, setPrefs,
   };
@@ -629,7 +691,6 @@ let saveTimer = null;
 let listFilter = 'all';
 let reviewList = [];               // resultRecord.questions への index の配列
 let reviewIdx = 0;
-let revLang = 'en';
 
 function setCurrentQuestions(list) {
   currentQuestions = list;
@@ -643,6 +704,8 @@ const SCREEN_IDS = ['screen-home', 'screen-setup', 'screen-question', 'screen-li
 function show(id) {
   SCREEN_IDS.forEach((s) => $(s).classList.toggle('hidden', s !== id));
   $('app-main').classList.toggle('with-bottom-nav', id === 'screen-question' || id === 'screen-list');
+  // 左右分割の画面（解答・復習）は PC 幅でコンテンツ幅を広げる
+  document.body.classList.toggle('wide', id === 'screen-question' || id === 'screen-review');
   window.scrollTo(0, 0);
 }
 function setHeaderTitle(text) { $('header-title').textContent = text; }
@@ -688,6 +751,7 @@ function renderSetList() {
           <button class="btn" data-action="toggle-history" data-set-id="${esc(s.id)}">受験履歴</button>
           <button class="btn" data-action="export-questions" data-set-id="${esc(s.id)}">問題+メモを書き出す</button>
           <button class="btn" data-action="export-results" data-set-id="${esc(s.id)}">成績を書き出す</button>
+          <button class="btn btn-danger" data-action="delete" data-set-id="${esc(s.id)}">削除</button>
         </div>
         <div class="set-history-wrap hidden" data-history-for="${esc(s.id)}"></div>
       </div>`;
@@ -705,6 +769,33 @@ async function onSetListClick(e) {
   else if (action === 'toggle-history') await toggleHistoryPanel(id);
   else if (action === 'export-questions') await exportQuestions(id);
   else if (action === 'export-results') await exportResults(id);
+  else if (action === 'delete') await deleteSetWithConfirm(id);
+}
+
+/* セット削除。履歴・メモは問題 id 紐付けで再インポート時に復活できるため、残すか一緒に消すか選ばせる */
+async function deleteSetWithConfirm(id) {
+  const rec = findSetRecord(id);
+  if (!rec) return;
+  const hist = await Storage.getHistory(id);
+  const choice = await openModal({
+    title: '問題セットを削除',
+    bodyHTML: `<p>「${esc(rec.set.name || id)}」（${rec.questions.length}問・受験履歴 ${hist.length}件）を削除します。<br>` +
+      '履歴とメモを残しておくと、同じセットID・問題IDで再インポートしたときに引き継がれます。</p>',
+    buttons: [
+      { label: 'セットのみ削除（履歴・メモは残す）', value: 'set-only', className: 'btn-primary' },
+      { label: '履歴・メモごと削除', value: 'all', className: 'btn-danger' },
+      { label: 'キャンセル', value: 'cancel' },
+    ],
+  });
+  if (!choice || choice === 'cancel') return;
+  await Storage.deleteSet(id);
+  if (choice === 'all') {
+    await Storage.deleteHistory(id);
+    await Storage.deleteNotesForSet(id);
+  }
+  await refreshSetList();
+  await checkResumableSession(); // 削除したセットの中断セッションが残っていればバナー文言を更新
+  showToast(`「${rec.set.name || id}」を削除しました`);
 }
 
 async function toggleHistoryPanel(id) {
@@ -963,15 +1054,7 @@ async function renderSetupScreen() {
 
   onSetupCountChange();
 
-  $('setup-lang-seg').querySelectorAll('button').forEach((b) => {
-    b.onclick = () => {
-      $('setup-lang-seg').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
-    };
-  });
-
   const prefs = await Storage.getPrefs();
-  const lang = LANG_CYCLE.includes(prefs.lang) ? prefs.lang : 'en';
-  $('setup-lang-seg').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x.dataset.lang === lang));
   $('setup-shuffle-checkbox').checked = prefs.shuffle !== false; // 既定 true
 }
 
@@ -989,8 +1072,7 @@ async function startSession() {
   const total = currentQuestions.length;
   const count = clamp(Math.round(Number($('setup-count-input').value)) || 1, 1, total);
   const minutes = clamp(Math.round(Number($('setup-time-input').value)) || 1, 1, 24 * 60);
-  const langBtn = $('setup-lang-seg').querySelector('button.active');
-  const lang = langBtn ? langBtn.dataset.lang : 'en';
+  const lang = 'en'; // 解答画面は英語固定（言語切替 UI は撤去済み）
   const shuffle = $('setup-shuffle-checkbox').checked;
 
   let pool = currentQuestions.map((q) => q.id);
@@ -1030,7 +1112,8 @@ function renderQuestion() {
   const qid = q.id;
 
   $('q-number').textContent = `問 ${session.idx + 1} / ${session.qids.length}`;
-  $('q-text').innerHTML = bi(q.question, q.question_ja, session.lang);
+  renderContextPane('q', q, false); // 解答中は英語のみ
+  $('q-text').innerHTML = bi(q.question, q.question_ja, 'en');
 
   const keys = optionKeys(q);
   const ansRaw = session.answers[qid];
@@ -1047,7 +1130,7 @@ function renderQuestion() {
   const wrap = $('q-options');
   wrap.innerHTML = keys.map((k) => `
     <div class="option-row">
-      <button class="option" data-key="${esc(k)}"><span class="letter">${esc(k)}</span><span class="opt-text">${bi(q.options[k], (q.options_ja || {})[k], session.lang)}</span></button>
+      <button class="option" data-key="${esc(k)}"><span class="letter">${esc(k)}</span><span class="opt-text">${bi(q.options[k], (q.options_ja || {})[k], 'en')}</span></button>
       <button class="strike-btn" data-key="${esc(k)}" title="取り消し線">✕</button>
     </div>`).join('');
   wrap.querySelectorAll('.option').forEach((btn) => {
@@ -1063,7 +1146,6 @@ function renderQuestion() {
   });
 
   $('flag-btn').classList.toggle('flagged', !!session.flags[qid]);
-  $('lang-btn').textContent = langBtnLabel(session.lang);
   $('memo-btn').classList.toggle('has-memo', hasMemo(qid));
 
   $('prev-btn').disabled = session.idx === 0;
@@ -1303,7 +1385,6 @@ function renderResult() {
 /* ================= review (提出後) ================= */
 function openReview(idxInReviewList) {
   reviewIdx = idxInReviewList;
-  revLang = session ? session.lang : (resultRecord.lang || 'en'); // 履歴閲覧時は session が無いので受験時の言語を使う
   renderReview();
   show('screen-review');
 }
@@ -1323,12 +1404,12 @@ function renderReview() {
     const correctLabel = Array.isArray(rq.correct) ? rq.correct.slice().sort().join(', ') : rq.correct;
     $('rev-area').textContent = '';
     $('rev-time').textContent = '⏱ ' + mmss(rq.ms);
+    renderContextPane('rev', null, true); // 問題データが無いので左ペインも隠す
     $('rev-text').innerHTML = `<span class="hint">この問題（id: ${esc(String(rq.id))}）は現在の問題セットに存在しません（ブラッシュアップで変更された可能性があります）。</span>`;
     $('rev-options').innerHTML = '';
     $('rev-feedback').innerHTML =
       `<div class="verdict ${rq.ok ? 'correct' : 'incorrect'}">` +
       `${!rq.answered ? '— 未解答' : (rq.ok ? '✅ 正解' : '❌ 不正解')}（あなたの解答: ${esc(String(yourLabel))} / 正解: ${esc(String(correctLabel))}）</div>`;
-    $('rev-lang-btn').textContent = langBtnLabel(revLang);
     $('rev-memo-btn').classList.toggle('has-memo', hasMemo(rq.id));
     $('rev-prev-btn').disabled = reviewIdx === 0;
     $('rev-next-btn').disabled = reviewIdx === reviewList.length - 1;
@@ -1343,14 +1424,15 @@ function renderReview() {
 
   $('rev-area').textContent = areaOf(q) + (topicOf(q) ? ' / ' + topicOf(q) : '');
   $('rev-time').textContent = '⏱ ' + mmss(rq.ms);
-  $('rev-text').innerHTML = bi(q.question, q.question_ja, revLang);
+  renderContextPane('rev', q, true); // 復習は常に英日併記
+  $('rev-text').innerHTML = bi(q.question, q.question_ja, 'both');
 
   const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
   const yourSet = new Set(Array.isArray(ans) ? ans : (isAnswered(ans) ? [ans] : []));
   const struckSet = new Set(rq.struck || []); // 旧履歴レコードには struck が無いためガード
   const wrap = $('rev-options');
   wrap.innerHTML = optionKeys(q).map((k) =>
-    `<button class="option" data-key="${esc(k)}" disabled><span class="letter">${esc(k)}</span><span class="opt-text">${bi(q.options[k], (q.options_ja || {})[k], revLang)}</span></button>`
+    `<button class="option" data-key="${esc(k)}" disabled><span class="letter">${esc(k)}</span><span class="opt-text">${bi(q.options[k], (q.options_ja || {})[k], 'both')}</span></button>`
   ).join('');
   wrap.querySelectorAll('.option').forEach((btn) => {
     const k = btn.dataset.key;
@@ -1367,9 +1449,8 @@ function renderReview() {
     : (rq.ok ? '✅ 正解' : `❌ 不正解（正解: ${esc(correctLabel)}）`);
   $('rev-feedback').innerHTML =
     `<div class="verdict ${rq.ok ? 'correct' : 'incorrect'}">${verdictHTML}</div>` +
-    `<div class="explanation"><strong>解説:</strong> ${bi(q.explanation, q.explanation_ja, revLang)}</div>`;
+    `<div class="explanation"><strong>解説:</strong> ${bi(q.explanation, q.explanation_ja, 'both')}</div>`;
 
-  $('rev-lang-btn').textContent = langBtnLabel(revLang);
   $('rev-memo-btn').classList.toggle('has-memo', hasMemo(q.id));
   $('rev-prev-btn').disabled = reviewIdx === 0;
   $('rev-next-btn').disabled = reviewIdx === reviewList.length - 1;
@@ -1480,13 +1561,11 @@ function onKeyDown(e) {
     if (optionKeys(q).includes(upper)) { toggleAnswer(upper); return; }
     if (e.key === 'ArrowRight') { gotoQuestion(session.idx + 1); return; }
     if (e.key === 'ArrowLeft') { gotoQuestion(session.idx - 1); return; }
-    if (e.key.toLowerCase() === 'l') { $('lang-btn').click(); return; }
     if (e.key.toLowerCase() === 'f') { $('flag-btn').click(); return; }
     if (e.key.toLowerCase() === 'm') { $('memo-btn').click(); return; }
   } else if (!$('screen-review').classList.contains('hidden')) {
     if (e.key === 'ArrowRight') { $('rev-next-btn').click(); return; }
     if (e.key === 'ArrowLeft') { $('rev-prev-btn').click(); return; }
-    if (e.key.toLowerCase() === 'l') { $('rev-lang-btn').click(); return; }
     if (e.key.toLowerCase() === 'c') { $('rev-copy-btn').click(); return; }
     if (e.key.toLowerCase() === 'm') { $('rev-memo-btn').click(); return; }
   } else if (!$('screen-list').classList.contains('hidden')) {
@@ -1514,7 +1593,6 @@ function wireStaticEvents() {
     renderQuestion();
     scheduleSave();
   };
-  $('lang-btn').onclick = () => { session.lang = nextLang(session.lang); renderQuestion(); scheduleSave(); };
   $('memo-btn').onclick = async () => { await openMemoEditor(currentQ().id); renderQuestion(); };
 
   $('list-filter-seg').querySelectorAll('button').forEach((b) => {
@@ -1529,7 +1607,6 @@ function wireStaticEvents() {
 
   $('rev-prev-btn').onclick = () => { if (reviewIdx > 0) { reviewIdx--; renderReview(); } };
   $('rev-next-btn').onclick = () => { if (reviewIdx < reviewList.length - 1) { reviewIdx++; renderReview(); } };
-  $('rev-lang-btn').onclick = () => { revLang = nextLang(revLang); renderReview(); };
   $('rev-back-btn').onclick = () => show('screen-result');
 
   document.addEventListener('keydown', onKeyDown);
@@ -1540,6 +1617,17 @@ function wireStaticEvents() {
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   if (location.protocol === 'https:' || location.hostname === 'localhost') {
+    // 旧バージョンの SW が cache-first で古い app shell を配り続けると、
+    // 新機能（左右分割など）が反映されないまま操作してしまう。
+    // 既に旧 SW 配下で開いていた場合に限り、新 SW への切り替わりを検知して一度だけ自動リロードする。
+    if (navigator.serviceWorker.controller) {
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
+    }
     navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW registration failed', e));
   }
   // file:// 等ではオリジンが安定しないため登録自体をスキップする（SPEC.md 参照）
