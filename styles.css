@@ -202,6 +202,34 @@ table.history tr.hist-row:hover td { background: #f9fafb; }
   font-size: 0.9em; font-family: ui-monospace, SFMono-Regular, "Cascadia Code", "Roboto Mono", monospace;
 }
 
+/* ---- split layout (シナリオ前段の左ペイン / CCAR-F 長文問題向け) ---- */
+.scenario-title {
+  font-weight: 700; font-size: 0.92rem; color: #075985;
+  background: var(--accent-soft); padding: 0.3rem 0.65rem; border-radius: 4px;
+  display: inline-block; margin-bottom: 0.6rem;
+}
+.context-pane {
+  background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+  padding: 0.9rem 1rem; margin-bottom: 1rem;
+}
+.context-text { font-size: 0.98rem; line-height: 1.7; word-wrap: break-word; }
+.context-text p { margin: 0 0 0.8rem; }
+.context-text p:last-child { margin-bottom: 0; }
+/* 本番の左右分割を再現: 画面が広いときだけ 2 カラム化。context の無い問題は従来どおり 1 ペイン */
+@media (min-width: 768px) {
+  .split-layout.has-context {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.25rem; align-items: start;
+  }
+  .split-layout.has-context .context-pane {
+    margin-bottom: 0;
+    position: sticky; top: calc(4.6rem + var(--safe-top)); /* ヘッダー分を避けて追従 */
+    max-height: calc(100vh - 6.5rem); overflow-y: auto;
+  }
+  /* 分割表示の画面（解答・復習）ではコンテンツ幅を本番同様に広げる */
+  body.wide main, body.wide .header-row, body.wide .progress-bar, body.wide .banner { max-width: 1250px; }
+}
+
 /* ---- options ---- */
 .options { display: flex; flex-direction: column; gap: 0.6rem; }
 .option-row { display: flex; align-items: stretch; gap: 0.5rem; }
@@ -370,6 +398,8 @@ footer { text-align: center; color: #9ca3af; font-size: 0.8rem; padding: 1rem; }
   .list-row:hover, .result-row:hover { background: #17233a; }
   table.history tr.hist-row:hover td { background: #17233a; }
   .q-number { background: #1e293b; }
+  .context-pane { background: #16213a; border-color: var(--border); }
+  .scenario-title { color: #7dd3fc; }
   .question-text code, .option code, .explanation code, .bi-ja code {
     background: #0f172a; color: #7dd3fc; border: 1px solid #334155;
   }

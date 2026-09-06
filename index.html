@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" translate="no">
 <head>
 <meta charset="UTF-8">
+<meta name="google" content="notranslate">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -78,14 +79,6 @@
         <div class="hint" id="setup-time-hint"></div>
       </div>
       <div class="setup-group">
-        <label>出題言語</label>
-        <div class="seg" id="setup-lang-seg">
-          <button data-lang="en">英語</button>
-          <button data-lang="ja">日本語</button>
-          <button data-lang="both">英日併記</button>
-        </div>
-      </div>
-      <div class="setup-group">
         <label class="checkbox-label"><input type="checkbox" id="setup-shuffle-checkbox"> 出題順をシャッフルする</label>
       </div>
       <div class="btn-row">
@@ -102,11 +95,18 @@
         <span class="q-number" id="q-number"></span>
         <span class="q-select-hint hidden" id="q-select-hint"></span>
       </div>
-      <div class="question-text" id="q-text"></div>
-      <div class="options" id="q-options"></div>
+      <div class="split-layout" id="q-split">
+        <div class="context-pane hidden" id="q-context-pane" lang="en">
+          <div class="scenario-title" id="q-scenario"></div>
+          <div class="context-text" id="q-context"></div>
+        </div>
+        <div class="main-pane">
+          <div class="question-text" id="q-text" lang="en"></div>
+          <div class="options" id="q-options" lang="en"></div>
+        </div>
+      </div>
       <div class="action-row">
         <button class="btn flag-btn" id="flag-btn">🚩 あとで見直す</button>
-        <button class="btn lang-btn" id="lang-btn">🌐 日本語で表示</button>
         <button class="btn memo-btn" id="memo-btn">📝 メモ</button>
       </div>
       <div class="palette" id="palette"></div>
@@ -161,13 +161,20 @@
         <span class="rev-time" id="rev-time"></span>
       </div>
       <div class="area-tag" id="rev-area"></div>
-      <div class="question-text" id="rev-text"></div>
-      <div class="options" id="rev-options"></div>
-      <div id="rev-feedback"></div>
+      <div class="split-layout" id="rev-split">
+        <div class="context-pane hidden" id="rev-context-pane" lang="en">
+          <div class="scenario-title" id="rev-scenario"></div>
+          <div class="context-text" id="rev-context"></div>
+        </div>
+        <div class="main-pane">
+          <div class="question-text" id="rev-text" lang="en"></div>
+          <div class="options" id="rev-options" lang="en"></div>
+          <div id="rev-feedback"></div>
+        </div>
+      </div>
       <div class="action-row">
         <button class="btn memo-btn" id="rev-memo-btn">📝 メモ</button>
         <button class="btn" id="rev-copy-btn">📋 解説用にコピー</button>
-        <button class="btn" id="rev-lang-btn">🌐 日本語で表示</button>
       </div>
     </div>
     <div class="bottom-nav">
@@ -179,7 +186,7 @@
 
 </main>
 
-<footer>解答・成績は端末内（IndexedDB / localStorage）に保存されます。問題文は外部に送信されません。</footer>
+<footer>解答・成績は端末内（IndexedDB / localStorage）に保存されます。問題文は外部に送信されません。<br>CCAR-F 改修版 build v6（左右分割・英日併記・セット削除対応）</footer>
 
 <div class="modal-overlay hidden" id="modal-overlay">
   <div class="modal-box">
